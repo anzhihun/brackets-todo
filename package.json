@@ -3,7 +3,7 @@
 	"title": "Todo",
 	"description": "Display all TODO comments in current document or project.",
 	"homepage": "https://github.com/mikaeljorhult/brackets-todo",
-	"version": "0.5.3",
+	"version": "0.6.0",
 	"author": "Mikael Jorhult <mikael@jorhult.se> (http://jorhult.se)",
 	"repository": {
 		"type": "git",
@@ -17,10 +17,11 @@
 		"brackets": ">=0.37.0"
 	},
 	"i18n": [
-		"de", "en", "fr", "it", "sv", "zh"
+		"de", "en", "es", "fr", "gl", "it", "sv", "zh"
 	],
 	"devDependencies": {
 		"gulp": "^3.8.6",
+		"gulp-jscs": "^1.1.0",
 		"gulp-jshint": "^1.7.1",
 		"gulp-load-plugins": "^0.5.3"
 	}

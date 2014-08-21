@@ -125,12 +125,7 @@
 }
 
 .brackets-todo .icons .indicator {
-	opacity: .5;
 	background-position: left -36px;
-}
-
-.brackets-todo.todo-file .icons .indicator {
-	opacity: 1;
 }
 
 .brackets-todo .tags {
@@ -163,8 +158,16 @@
 /*--- PROJECT WIDE SEARCH ---*/
 .brackets-todo.current .icons .expand-all,
 .brackets-todo.current .icons .collapse-all,
-.brackets-todo.current tr.file {
+.brackets-todo.current .file-name {
 	display: none;
+}
+
+.brackets-todo.current tr.file > td {
+	padding: 0;
+}
+
+.brackets-todo.current .todos {
+	margin-top: 0;
 }
 
 .brackets-todo tr.file > td {
@@ -209,4 +212,8 @@
 	width: auto;
 	display: inline-block;
 	margin-right: 1em;
+}
+
+.brackets-todo-settings-dialog .invalid {
+	border-color: #c95353;
 }

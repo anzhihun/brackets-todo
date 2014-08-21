@@ -7,6 +7,7 @@ define( function( require, exports ) {
 		ProjectManager = brackets.getModule( 'project/ProjectManager' ),
 		
 		// Todo modules.
+		Paths = require( 'modules/Paths' ),
 		SettingsManager = require( 'modules/SettingsManager' );
 	
 	/**
@@ -21,8 +22,7 @@ define( function( require, exports ) {
 	 */
 	function filter() {
 		return function filterFunction( file ) {
-			var projectRoot = ProjectManager.getProjectRoot().fullPath,
-				relativePath = '^' + file.parentPath.replace( projectRoot, '' ),
+			var relativePath = '^' + Paths.makeRelative( file.parentPath ),
 				languageID = LanguageManager.getLanguageForPath( file.fullPath ).getId(),
 				fileName = file.name,
 				searchString,
@@ -43,7 +43,7 @@ define( function( require, exports ) {
 					// If root level is indicated (by first character being a slash) replace it with ^
 					// to prevent matching subdirectories.
 					if ( searchString.charAt( 0 ) === '/' ) {
-						searchString = searchString.replace ( /^\//, '^');
+						searchString = searchString.replace ( /^\//, '^' );
 					}
 					
 					// Check for matches in path.

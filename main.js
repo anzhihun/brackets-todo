@@ -1,5 +1,5 @@
 /*!
- * Brackets Todo 0.5.3
+ * Brackets Todo 0.6.0
  * Display all todo comments in current document or project.
  *
  * @author Mikael Jorhult
@@ -13,7 +13,6 @@ define( function( require, exports, module ) {
 		Menus = brackets.getModule( 'command/Menus' ),
 		CommandManager = brackets.getModule( 'command/CommandManager' ),
 		Commands = brackets.getModule( 'command/Commands' ),
-		ProjectManager = brackets.getModule( 'project/ProjectManager' ),
 		EditorManager = brackets.getModule( 'editor/EditorManager' ),
 		DocumentManager = brackets.getModule( 'document/DocumentManager' ),
 		PanelManager = brackets.getModule( 'view/PanelManager' ),
@@ -29,6 +28,7 @@ define( function( require, exports, module ) {
 		Events = require( 'modules/Events' ),
 		FileManager = require( 'modules/FileManager' ),
 		ParseUtils = require( 'modules/ParseUtils' ),
+		Paths = require( 'modules/Paths' ),
 		SettingsManager = require( 'modules/SettingsManager' ),
 		Strings = require( 'modules/Strings' ),
 		
@@ -40,7 +40,6 @@ define( function( require, exports, module ) {
 		
 		// Setup extension.
 		todos = [],
-		todoFile,
 		$todoPanel,
 		$todoIcon = $( '<a href="#" title="' + Strings.EXTENSION_NAME + '" id="brackets-todo-icon"></a>' ),
 		
@@ -73,7 +72,7 @@ define( function( require, exports, module ) {
 	 */
 	function enableTodo( enabled ) {
 		if ( enabled ) {
-			loadSettings( function() {
+			SettingsManager.loadSettings( function() {
 				// Show panel.
 				Resizer.show( $todoPanel );
 			} );
@@ -89,18 +88,10 @@ define( function( require, exports, module ) {
 		}
 		
 		// Save enabled state.
-		SettingsManager.setExtensionEnabled(enabled);
+		SettingsManager.setExtensionEnabled( enabled );
 		
 		// Mark menu item as enabled/disabled.
 		CommandManager.get( COMMAND_ID ).setChecked( enabled );
-	}
-	
-	/**
-	 * Check for settings file and load if it exists.
-	 * .todo file > settings by setting dialog > default settings
-	 */
-	function loadSettings( callback ) {
-		SettingsManager.loadSettings( callback );
 	}
 	
 	/**
@@ -122,7 +113,12 @@ define( function( require, exports, module ) {
 			// Bail if no files.
 			if ( files.length === 0 ) {
 				setTodos( todoArray );
-				if ( callback ) { callback(); }
+				
+				// Run callback when completed.
+				if ( callback ) {
+					callback();
+				}
+				
 				return;
 			}
 			
@@ -143,14 +139,16 @@ define( function( require, exports, module ) {
 			} ).always( function() {
 				// Add file visibility state.
 				$.each( todoArray, function( index, file ) {
-					file.visible = SettingsManager.fileVisible( file.path );
+					file.visible = SettingsManager.fileVisible( file.path() );
 				} );
 				
 				// Store array of todos.
 				setTodos( todoArray );
 				
 				// Run callback when completed.
-				if ( callback ) { callback(); }
+				if ( callback ) {
+					callback();
+				}
 			} );
 		} );
 	}
@@ -179,9 +177,6 @@ define( function( require, exports, module ) {
 		// Show file rows if project search scope.
 		if ( project ) {
 			$todoPanel.removeClass( 'current' );
-			
-			$( '.file.collapsed', resultsHTML )
-				.nextUntil( '.file' ).hide();
 		} else {
 			$todoPanel.addClass( 'current' );
 		}
@@ -196,28 +191,15 @@ define( function( require, exports, module ) {
 	 * Filter todos by tag. 
 	 */
 	function filterTodosByTag( beforeFilter ) {
-		if ( beforeFilter.length === 0 ) { return beforeFilter; }
-		
-		// Create deep clone of array to work with.   
-		var afterFilter = JSON.parse( JSON.stringify( beforeFilter ) );
+		// Bail if no files are available.
+		if ( beforeFilter.length === 0 ) {
+			return beforeFilter;
+		}
 		
 		// Go through each file and only return those with visible comments.
-		afterFilter = afterFilter.filter( function( file ) {
-			// Do not return if no valid todos.
-			if ( file.todos === undefined || file.todos.length < 1 ) {
-				return false;
-			}
-			
-			// Go through each comment and only return those of visible tags.
-			file.todos = file.todos.filter( function( comment ) {
-				return SettingsManager.isTagVisible( comment.tag );
-			} );
-			
-			// Check if file has any visible todos after filtering.
-			return ( file.todos.length > 0 ? true : false );
+		return beforeFilter.filter( function( file ) {
+			return file.hasVisibleTodos();
 		} );
-		
-		return afterFilter;
 	}
 	
 	/** 
@@ -232,14 +214,14 @@ define( function( require, exports, module ) {
 	}
 	
 	/**
-	 * Keep file visibility as before after file changed
+	 * Keep file visibility as before after file changed.
 	 */
 	function setTodosVisible( todos ) {
 		var index = 0,
 			length = todos.length;
 		
 		for ( index = 0; index < length; index++ ) {
-			todos[ index ].visible = SettingsManager.fileVisible( todos[ index ].path );
+			todos[ index ].visible = SettingsManager.fileVisible( todos[ index ].path() );
 		}
 		
 		return todos;
@@ -254,9 +236,9 @@ define( function( require, exports, module ) {
 		// Go through each file.
 		$.each( todos, function( index, file ) {
 			// Go through each comment.
-			$.each( file.todos, function( index, comment ) {
+			$.each( file.todos(), function( index, comment ) {
 				// If comment is of requested type, add one to count.
-				if ( comment.tag === tag ) {
+				if ( comment.tag() === tag ) {
 					count++;
 				}
 			} );
@@ -283,7 +265,7 @@ define( function( require, exports, module ) {
 			tag;
 		
 		// Create array of tags from visible tags object.
-		for( tag in visibleTags ) {
+		for ( tag in visibleTags ) {
 			if ( visibleTags.hasOwnProperty( tag ) ) {
 				visibleTags[ tag ].count = countByTag( tag );
 				
@@ -313,8 +295,7 @@ define( function( require, exports, module ) {
 	 * Listen for save or refresh and look for todos when needed.
 	 */
 	function registerListeners() {
-		var $documentManager = $( DocumentManager ),
-			$projectManager = $( ProjectManager );
+		var $documentManager = $( DocumentManager );
 		
 		// Listeners bound to Todo modules.
 		Events.subscribe( 'settings:loaded', function() {
@@ -336,13 +317,13 @@ define( function( require, exports, module ) {
 		// Listeners for file changes.
 		FileSystem.on( 'change', function( event, file ) {
 			// Bail if not a file or file is outside current project root.
-			if ( !file.isFile || file.fullPath.indexOf( ProjectManager.getProjectRoot().fullPath ) === -1 ) {
+			if ( !file.isFile || file.fullPath.indexOf( Paths.projectRoot() ) === -1 ) {
 				return false;
 			}
 			
 			// Reload settings if .todo of current project was updated.
-			if ( file.fullPath === ProjectManager.getProjectRoot().fullPath + '.todo' ) {
-				loadSettings();
+			if ( file.fullPath === Paths.todoFile() ) {
+				SettingsManager.loadSettings();
 			} else {
 				// Get document from path and parse.
 				DocumentManager.getDocumentForPath( file.fullPath ).done( function( document ) {
@@ -352,11 +333,11 @@ define( function( require, exports, module ) {
 		} );
 		
 		FileSystem.on( 'rename', function( event, oldName, newName ) {
-			var todoPath = ProjectManager.getProjectRoot().fullPath + '.todo';
+			var todoPath = Paths.todoFile();
 			
 			// Reload settings if .todo of current project was updated.
 			if ( newName === todoPath || oldName === todoPath ) {
-				loadSettings();
+				SettingsManager.loadSettings();
 			} else {
 				// Move visibility state to new file.
 				SettingsManager.toggleFileVisible( newName, SettingsManager.fileVisible( oldName ) );
@@ -405,11 +386,11 @@ define( function( require, exports, module ) {
 				}
 			} )
 			.on( 'pathDeleted.todo', function( event, deletedPath ) {
-				var todoPath = ProjectManager.getProjectRoot().fullPath + '.todo';
+				var todoPath = Paths.todoFile();
 				
 				// Reload settings if .todo of current project was deleted.
 				if ( deletedPath === todoPath ) {
-					loadSettings();
+					SettingsManager.loadSettings();
 				}
 				
 				// Remove file from visibility list.
@@ -418,20 +399,11 @@ define( function( require, exports, module ) {
 				// Parse path that was deleted to remove from list.
 				setTodos( ParseUtils.removeFile( deletedPath, todos ) );
 			} );
-		
-		// Reload settings when new project is loaded.
-		$projectManager.on( 'projectOpen.todo', function() {
-			loadSettings( function() {
-				// Reset file visibility.
-				SettingsManager.clearVisibleFiles();
-			} );
-		} );
 	}
 	
 	// Register panel and setup event listeners.
 	AppInit.appReady( function() {
 		var todoHTML = Mustache.render( todoPanelTemplate, {
-				todo: todoFile,
 				tools: renderTools(),
 				strings: Strings
 			} );
@@ -446,12 +418,12 @@ define( function( require, exports, module ) {
 				enableTodo( false );
 			} )
 			.on( 'click', '.indicator', function() {
-				var todoFilePath = ProjectManager.getProjectRoot().fullPath + '.todo';
+				var todoFilePath = Paths.todoFile();
 				
 				// Check if there is a file with the name .todo.
 				FileSystem.resolve( todoFilePath, function( error, entry ) {
 					// Check if the todo file is present.
-					if ( todoFile || entry !== undefined ) {
+					if ( entry !== undefined ) {
 						// Open .todo filein editor.
 						CommandManager.execute( Commands.FILE_OPEN, { fullPath: todoFilePath } ).done( function() {
 							// Set focus on editor.

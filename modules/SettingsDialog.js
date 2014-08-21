@@ -8,10 +8,10 @@ define( function( require, exports ) {
 		EditorManager = brackets.getModule( 'editor/EditorManager' ),
 		FileSystem = brackets.getModule( 'filesystem/FileSystem' ),
 		FileUtils = brackets.getModule( 'file/FileUtils' ),
-		ProjectManager = brackets.getModule( 'project/ProjectManager' ),
 		
 		// Extension modules.
 		Defaults = require( 'modules/Defaults' ),
+		Paths = require( 'modules/Paths' ),
 		Strings = require( 'modules/Strings' ),
 		settingsDialogTemplate = require( 'text!../html/dialog-settings.html' ),
 
@@ -55,6 +55,32 @@ define( function( require, exports ) {
 	}
 	
 	/**
+	 * Test that all values are valid.
+	 */
+	function validateValues() {
+		var values = getValues(),
+			validationObject = {
+				valid: true,
+				invalidFields: [ 'test' ]
+			};
+		
+		// Test regular expression.
+		try {
+			new RegExp(
+				values.regex.prefix + 'TEST' +
+				values.regex.suffix
+			);
+		} catch ( error ) {
+			validationObject.valid = false;
+			
+			validationObject.invalidFields.push( 'todo-settings-regex-prefix' );
+			validationObject.invalidFields.push( 'todo-settings-regex-suffix' );
+		}
+		
+		return validationObject;
+	}
+	
+	/**
 	 * Split string by comma and return values as an array.
 	 */
 	function splitByComma( value ) {
@@ -71,17 +97,76 @@ define( function( require, exports ) {
 		return result;
 	}
 	
+	function markInvalidFields( fields ) {
+		var field;
+		
+		// Reset invalid fields.
+		$dialog.find( 'input' ).removeClass( 'invalid' );
+		
+		// Add class to each invalid field.
+		for ( field in fields ) {
+			if ( fields.hasOwnProperty( field ) ) {
+				$( 'input[ name="' + fields[ field ] + '"]', $dialog ).addClass( 'invalid' );
+			}
+		}
+	}
+	
+	function handleButton( buttonId, callback ) {
+		var todoPath = Paths.todoFile(),
+			fileEntry = FileSystem.getFileForPath( todoPath ),
+			validation = validateValues(),
+			newSettings = getValues();
+		
+		// Close button if cancel was clicked.
+		if ( buttonId === 'cancel' ) {
+			dialog.close();
+		}
+		
+		// Save preferences if OK button was clicked.
+		if ( buttonId === 'ok' ) {
+			// Check that values are valid.
+			if ( validation.valid === true ) {
+				// Send values to callback if one is supplied.
+				if ( callback ) {
+					callback( newSettings );
+				}
+				
+				// Close dialog.
+				dialog.close();
+			} else {
+				markInvalidFields( validation.invalidFields );
+			}
+		} else if ( buttonId === 'save-file' ) {
+			// Check that values are valid.
+			if ( validation.valid === true ) {
+				// Write settings to .todo as JSON.
+				FileUtils.writeText( fileEntry, JSON.stringify( newSettings, null, '\t' ), true ).done( function() {
+					// Open newly created file.
+					CommandManager.execute( Commands.FILE_OPEN, { fullPath: todoPath } ).done( function() {
+						// Set focus on editor.
+						EditorManager.focusEditor();
+					} );
+				} );
+				
+				// Close dialog.
+				dialog.close();
+			} else {
+				markInvalidFields( validation.invalidFields );
+			}
+		}
+	}
+	
 	/**
 	 * Exposed method to show dialog.
 	 */
-	exports.showDialog = function( settings, onSaveCallback ) {
+	exports.show = function( settings, callback ) {
 		// Compile dialog template.
 		var compiledTemplate = Mustache.render( settingsDialogTemplate, {
 			Strings: Strings
 		} );
 		
 		// Save dialog to variable.
-		dialog = Dialogs.showModalDialogUsingTemplate( compiledTemplate );
+		dialog = Dialogs.showModalDialogUsingTemplate( compiledTemplate, false );
 		$dialog = dialog.getElement();
 		
 		// Initialize dialog values.
@@ -91,30 +176,12 @@ define( function( require, exports ) {
 		$dialog
 			.on( 'click', '.reset-preferences', function() {
 				initValues( Defaults.defaultSettings );
+			} )
+			.on( 'click', '.dialog-button', function() {
+				var buttonId = $( this ).data( 'button-id' );
+				
+				// Handle closing dialog.
+				handleButton( buttonId, callback );
 			} );
-		
-		// Open dialog.
-		dialog.done( function( buttonId ) {
-			var newSettings = getValues(),
-				todoPath = ProjectManager.getProjectRoot().fullPath + '.todo',
-				fileEntry = FileSystem.getFileForPath( todoPath );
-			
-			// Save preferences if OK button was clicked.
-			if ( buttonId === 'ok' ) {
-				// Send values to callback if one is supplied.
-				if ( onSaveCallback ) {
-					onSaveCallback( newSettings );
-				}
-			} else if ( buttonId === 'save-file' ) {
-				// Write settings to .todo as JSON.
-				FileUtils.writeText( fileEntry, JSON.stringify( newSettings, null, '\t' ), true ).done( function() {
-					// Open newly created file.
-					CommandManager.execute( Commands.FILE_OPEN, { fullPath: todoPath } ).done( function() {
-						// Set focus on editor.
-						EditorManager.focusEditor();
-					} );
-				} );
-			}
-		} );
 	};
 } );

@@ -1,23 +1,28 @@
-define( function( require, exports ) {
+define( function( require ) {
 	'use strict';
 	
 	// Get dependencies.
 	var FileUtils = brackets.getModule( 'file/FileUtils' ),
 		FileSystem = brackets.getModule( 'filesystem/FileSystem' ),
 		PreferencesManager = brackets.getModule( 'preferences/PreferencesManager' ),
+		ProjectManager = brackets.getModule( 'project/ProjectManager' ),
+		
+		// Extension modules.
 		Defaults = require( 'modules/Defaults' ),
 		Events = require( 'modules/Events' ),
+		Paths = require( 'modules/Paths' ),
 		SettingsDialog = require( 'modules/SettingsDialog' ),
 		settings = Defaults.defaultSettings,
 		
 		// Preferences.
 		preferences = PreferencesManager.getExtensionPrefs( 'mikaeljorhult.bracketsTodo' ),
 		
+		// Variables.
 		visibleFiles,
 		visibleTags;
 	
 	// Define preferences.
-	preferences.definePreference( 'enabled', 'boolean', false);
+	preferences.definePreference( 'enabled', 'boolean', false );
 	preferences.definePreference( 'visibleFiles', 'object', [] );
 	preferences.definePreference( 'visibleTags', 'object', {} );
 	preferences.definePreference( 'userSettings', 'object', {} );
@@ -32,49 +37,51 @@ define( function( require, exports ) {
 	 * settings in .todo file > settings set by settings dialog > default settings
 	 */
 	function loadSettings( callback ) {
-		var ProjectManager = brackets.getModule( 'project/ProjectManager' ),
-			projectRoot = ProjectManager.getProjectRoot(),
-			fileEntry = FileSystem.getFileForPath(projectRoot.fullPath + '.todo' ),
-			fileContent = FileUtils.readAsText( fileEntry ),
-			userSettings = {},
-			todoFile = false;
+		var fileEntry = FileSystem.getFileForPath( Paths.todoFile() ),
+			fileContent,
+			userSettings = getUserSettings();
 		
-		// File is loaded asynchronous.
-		fileContent.done( function( content ) {
-			// Catch error if JSON is invalid
-			try {
-				//.todo file exists.
-				todoFile = true;
-
-				// Parse .todo file.
-				userSettings = JSON.parse( content );
-			} catch ( e ) {
-				// .todo exists but isn't valid JSON.
-				todoFile = false;
+		// Check if .todo exists in current project.
+		fileEntry.exists( function( err, exists ) {
+			// Only load settings from .todo if it exists.
+			if ( exists ) {
+				fileContent = FileUtils.readAsText( fileEntry );
+				
+				// File is loaded asynchronous.
+				fileContent.done( function( content ) {
+					// Catch error if JSON is invalid
+					try {
+						// Parse .todo file.
+						userSettings = JSON.parse( content );
+					} catch ( e ) {
+						// .todo exists but isn't valid JSON.
+					}
+				} ).always( function() {
+					finalizeSettings( userSettings, callback );
+				} );
+			} else {
+				finalizeSettings( userSettings, callback );
 			}
-		} ).fail( function() {
-			// .todo doesn't exists or couldn't be accessed.
-			todoFile = false;
-		} ).always( function() {
-			// Load settings from setting dialog if no .todo file
-			if ( ! todoFile ) {
-				userSettings = getUserSettings();
-			}
-			
-			// Merge default settings with JSON.
-			mergeSettings( userSettings );
-			
-			// Build array of tags and save to preferences.
-			setUpTags();
-			
-			// Trigger callback.
-			if ( callback ) {
-				callback();
-			}
-			
-			// Publish event.
-			Events.publish( 'settings:loaded' );
 		} );
+	}
+	
+	/**
+	 * Merge settings and trigger callback.
+	 */
+	function finalizeSettings( userSettings, callback ) {
+		// Merge default settings with JSON.
+		mergeSettings( userSettings );
+		
+		// Build array of tags and save to preferences.
+		setupTags();
+		
+		// Trigger callback.
+		if ( callback ) {
+			callback();
+		}
+		
+		// Publish event.
+		Events.publish( 'settings:loaded' );
 	}
 
 	function mergeSettings( userSettings ) {
@@ -117,7 +124,7 @@ define( function( require, exports ) {
 			userSettings = getSettings();
 		}
 		
-		SettingsDialog.showDialog( userSettings, function( newSettings ) {
+		SettingsDialog.show( userSettings, function( newSettings ) {
 			setUserSettings( newSettings );
 		} );
 	}
@@ -141,7 +148,7 @@ define( function( require, exports ) {
 		// Toggle visibility state.
 		if ( state ) {
 			// Show if already visible.
-			if ( ! alreadyVisible ) {
+			if ( !alreadyVisible ) {
 				visibleFiles.push( path );
 			}
 		} else {
@@ -155,15 +162,16 @@ define( function( require, exports ) {
 		preferences.set( 'visibleFiles', visibleFiles );
 		preferences.save();
 	}
-
-
+	
 	function clearVisibleFiles() {
 		visibleFiles = [];
 	}
-
-	function setUpTags() {
+	
+	function setupTags() {
 		// Build array of tags and save to preferences.
 		visibleTags = initTags();
+		
+		// Save visibility state.
 		preferences.set( 'visibleTags', visibleTags );
 		preferences.save();
 	}
@@ -198,8 +206,8 @@ define( function( require, exports ) {
 		var visible = false;
 		
 		// Check if tag exists and use that value.
-		if (visibleTags.hasOwnProperty(tag)) {
-			visible = visibleTags[tag].visible;
+		if ( visibleTags.hasOwnProperty( tag ) ) {
+			visible = visibleTags[ tag ].visible;
 		}
 		
 		return visible;
@@ -212,7 +220,7 @@ define( function( require, exports ) {
 	/**
 	 * Toggle tag visibility.
 	 */
-	function toggleTagVisible(tag, state) {
+	function toggleTagVisible( tag, state ) {
 		var visible = ( state !== undefined ? state : isTagVisible( tag ) );
 		
 		// Toggle visibility state.
@@ -234,22 +242,33 @@ define( function( require, exports ) {
 		preferences.save();
 	}
 	
-	// APIs about settings
-	exports.loadSettings = loadSettings;
-	exports.getSettings = getSettings;
-	exports.showSettingsDialog = showSettingsDialog;
-
-	// APIs about visible file
-	exports.fileVisible = fileVisible;
-	exports.toggleFileVisible = toggleFileVisible;
-	exports.clearVisibleFiles = clearVisibleFiles;
-
-	// APIs about visible tag
-	exports.isTagVisible = isTagVisible;
-	exports.getVisibleTags = getVisibleTags;
-	exports.toggleTagVisible = toggleTagVisible;
-
-	// APIs about Extension 
-	exports.isExtensionEnabled = isExtensionEnabled;
-	exports.setExtensionEnabled = setExtensionEnabled;
+	// Reload settings when new project is loaded.
+	$( ProjectManager ).on( 'projectOpen.todo', function() {
+		loadSettings( function() {
+			// Reset file visibility.
+			clearVisibleFiles();
+		} );
+	} );
+	
+	// Return global methods.
+	return {
+		// APIs about settings. 
+		loadSettings: loadSettings,
+		getSettings: getSettings,
+		showSettingsDialog: showSettingsDialog,
+		
+		// APIs about visible file.
+		fileVisible: fileVisible,
+		toggleFileVisible: toggleFileVisible,
+		clearVisibleFiles: clearVisibleFiles,
+		
+		// APIs about visible tag.
+		isTagVisible: isTagVisible,
+		getVisibleTags: getVisibleTags,
+		toggleTagVisible: toggleTagVisible,
+		
+		// APIs about extension.
+		isExtensionEnabled: isExtensionEnabled,
+		setExtensionEnabled: setExtensionEnabled
+	};
 } );
