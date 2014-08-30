@@ -11,6 +11,7 @@ define( function( require, exports, module ) {
 	// Get dependencies.
 	var Async = brackets.getModule( 'utils/Async' ),
 		Menus = brackets.getModule( 'command/Menus' ),
+		NativeApp = brackets.getModule( 'utils/NativeApp' ),
 		CommandManager = brackets.getModule( 'command/CommandManager' ),
 		Commands = brackets.getModule( 'command/Commands' ),
 		EditorManager = brackets.getModule( 'editor/EditorManager' ),
@@ -26,9 +27,11 @@ define( function( require, exports, module ) {
 		
 		// Todo modules.
 		Events = require( 'modules/Events' ),
+		Files = require( 'modules/Files' ),
 		FileManager = require( 'modules/FileManager' ),
 		ParseUtils = require( 'modules/ParseUtils' ),
 		Paths = require( 'modules/Paths' ),
+		Settings = require( 'modules/Settings' ),
 		SettingsManager = require( 'modules/SettingsManager' ),
 		Strings = require( 'modules/Strings' ),
 		
@@ -70,15 +73,20 @@ define( function( require, exports, module ) {
 	/** 
 	 * Initialize extension.
 	 */
-	function enableTodo( enabled ) {
+	function enableTodo( enabled, startup ) {
+		// Should extension be enabled or not?
 		if ( enabled ) {
-			SettingsManager.loadSettings( function() {
-				// Show panel.
+			// No need to load settings on startup as it's done on project load.
+			if ( startup === true ) {
+				// Only display panel.
 				Resizer.show( $todoPanel );
-			} );
-			
-			// Set active class on icon.
-			$todoIcon.addClass( 'active' );
+			} else {
+				// Load settings and then show panel.
+				SettingsManager.loadSettings( function() {
+					// Show panel.
+					Resizer.show( $todoPanel );
+				} );
+			}
 		} else {
 			// Hide panel.
 			Resizer.hide( $todoPanel );
@@ -139,7 +147,7 @@ define( function( require, exports, module ) {
 			} ).always( function() {
 				// Add file visibility state.
 				$.each( todoArray, function( index, file ) {
-					file.visible = SettingsManager.fileVisible( file.path() );
+					file.isExpanded( Files.isExpanded( file.path() ) );
 				} );
 				
 				// Store array of todos.
@@ -167,7 +175,7 @@ define( function( require, exports, module ) {
 	 * Take found todos and add them to panel. 
 	 */
 	function printTodo() {
-		var project = ( SettingsManager.getSettings().search.scope === 'project' ? true : false ),
+		var project = ( Settings.get().search.scope === 'project' ? true : false ),
 			resultsHTML = Mustache.render( todoResultsTemplate, {
 				todos: renderTodo()
 			} );
@@ -202,12 +210,39 @@ define( function( require, exports, module ) {
 		} );
 	}
 	
+	function sortTodos( beforeFilter ) {
+		// Go through each file for tasks.
+		$.each( todos, function( index, file ) {
+			var todoArray = file.todos();
+			
+			// Sort tasks by done status.
+			file.todos( todoArray.sort( function( a, b ) {
+				// Use line to differentiate between to tasks with same status.
+				if ( a.isDone() === b.isDone() ) {
+					return ( a.line() < b.line() ? -1 : 1 );
+				} else {
+					// One of the tasks are done. Check which one.
+					if ( a.isDone() ) {
+						return 1;
+					} else if ( b.isDone() ) {
+						return -1;
+					}
+				}
+				
+				// Will not ever happen.
+				return 0;
+			} ) );
+		} );
+		
+		return beforeFilter;
+	}
+	
 	/** 
 	 * Render HTML for each file row. 
 	 */
 	function renderTodo() {
 		var resultsHTML = Mustache.render( todoRowTemplate, {
-			files: setTodosVisible( filterTodosByTag( todos ) )
+			files: setTodosVisible( sortTodos( filterTodosByTag( todos ) ) )
 		} );
 		
 		return resultsHTML;
@@ -217,12 +252,10 @@ define( function( require, exports, module ) {
 	 * Keep file visibility as before after file changed.
 	 */
 	function setTodosVisible( todos ) {
-		var index = 0,
-			length = todos.length;
-		
-		for ( index = 0; index < length; index++ ) {
-			todos[ index ].visible = SettingsManager.fileVisible( todos[ index ].path() );
-		}
+		// Go through each file and expand where file was last expanded.
+		$.each( todos, function( index, file ) {
+			file.isExpanded( Files.isExpanded( file.path() ) );
+		} );
 		
 		return todos;
 	}
@@ -260,18 +293,12 @@ define( function( require, exports, module ) {
 	 * Render toolbar.
 	 */
 	function renderTools() {
-		var visibleTags = SettingsManager.getVisibleTags(),
-			tags = [],
-			tag;
+		var tags = SettingsManager.getTags();
 		
-		// Create array of tags from visible tags object.
-		for ( tag in visibleTags ) {
-			if ( visibleTags.hasOwnProperty( tag ) ) {
-				visibleTags[ tag ].count = countByTag( tag );
-				
-				tags.push( visibleTags[ tag ] );
-			}
-		}
+		// Count number of occurences of each tags.
+		$.each( tags, function( index, tag ) {
+			tag.count( countByTag( tag.tag() ) );
+		} );
 		
 		// Render and return toolbar.
 		return Mustache.render( todoToolbarTemplate, {
@@ -283,25 +310,11 @@ define( function( require, exports, module ) {
 	/**
 	 * Listen for save or refresh and look for todos when needed.
 	 */
-	function setupRegExp() {
-		// Setup regular expression.
-		ParseUtils.setExpression( new RegExp(
-			SettingsManager.getSettings().regex.prefix + SettingsManager.getSettings().tags.join( '|' ) + SettingsManager.getSettings().regex.suffix,
-			'g' + ( SettingsManager.getSettings().case !== false ? '' : 'i' )
-		) );
-	}
-	
-	/**
-	 * Listen for save or refresh and look for todos when needed.
-	 */
 	function registerListeners() {
 		var $documentManager = $( DocumentManager );
 		
 		// Listeners bound to Todo modules.
 		Events.subscribe( 'settings:loaded', function() {
-			// Setup regular expression.
-			setupRegExp();
-			
 			// Empty array of files.
 			setTodos( [] );
 			
@@ -317,7 +330,7 @@ define( function( require, exports, module ) {
 		// Listeners for file changes.
 		FileSystem.on( 'change', function( event, file ) {
 			// Bail if not a file or file is outside current project root.
-			if ( !file.isFile || file.fullPath.indexOf( Paths.projectRoot() ) === -1 ) {
+			if ( typeof( file ) !== 'object' || file[ 'isFile' ] === undefined || !file.isFile || file.fullPath.indexOf( Paths.projectRoot() ) === -1 ) {
 				return false;
 			}
 			
@@ -340,8 +353,8 @@ define( function( require, exports, module ) {
 				SettingsManager.loadSettings();
 			} else {
 				// Move visibility state to new file.
-				SettingsManager.toggleFileVisible( newName, SettingsManager.fileVisible( oldName ) );
-				SettingsManager.toggleFileVisible( oldName, false );
+				Files.toggleExpanded( newName, Files.isExpanded( oldName ) );
+				Files.toggleExpanded( oldName, false );
 				
 				// If not .todo, parse all files.
 				run();
@@ -360,7 +373,7 @@ define( function( require, exports, module ) {
 				}
 				
 				// No need to do anything if scope is project.
-				if ( SettingsManager.getSettings().search.scope === 'project' ) {
+				if ( Settings.get().search.scope === 'project' ) {
 					// Look for current file in list.
 					$scrollTarget = $todoPanel.find( '.file' ).filter( '[data-file="' + currentDocument.file.fullPath + '"]' );
 					
@@ -394,7 +407,7 @@ define( function( require, exports, module ) {
 				}
 				
 				// Remove file from visibility list.
-				SettingsManager.toggleFileVisible( deletedPath, false );
+				SettingsManager.toggleFileExpanded( deletedPath, false );
 				
 				// Parse path that was deleted to remove from list.
 				setTodos( ParseUtils.removeFile( deletedPath, todos ) );
@@ -435,6 +448,12 @@ define( function( require, exports, module ) {
 					}
 				} );
 			} )
+			.on( 'click', 'a[ rel="external" ]', function() {
+				// Open link in default browser.
+				NativeApp.openURLInDefaultBrowser( $( this ).data( 'href' ) );
+				
+				return false;
+			} )
 			.on( 'click', '.file', function() {
 				var $this = $( this );
 				
@@ -444,13 +463,13 @@ define( function( require, exports, module ) {
 					.toggleClass( 'collapsed' );
 				
 				// Toggle file visibility.
-				SettingsManager.toggleFileVisible( $this.data( 'file' ), $this.hasClass( 'expanded' ) );
+				Files.toggleExpanded( $this.data( 'file' ), $this.hasClass( 'expanded' ) );
 			} )
 			.on( 'click', '.comment', function() {
 				var $this = $( this );
 				
 				// Open file that todo originate from.
-				CommandManager.execute( Commands.FILE_OPEN, { fullPath: $this.data( 'file' ) } ).done( function() {
+				CommandManager.execute( Commands.FILE_OPEN, { fullPath: $this.parents( '.file' ).data( 'file' ) } ).done( function() {
 					// Set cursor position at start of todo.
 					EditorManager.getCurrentFullEditor()
 						.setCursorPos( $this.data( 'line' ) - 1, $this.data( 'char' ), true );
@@ -493,7 +512,7 @@ define( function( require, exports, module ) {
 		
 		// Enable extension if loaded last time.
 		if ( SettingsManager.isExtensionEnabled() ) {
-			enableTodo( true );
+			enableTodo( true, true );
 		}
 	} );
 } );

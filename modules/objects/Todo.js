@@ -1,11 +1,19 @@
 define( function( require ) {
 	'use strict';
 	
-	// Variables.
-	var doneRegExp = /^\[x\]/i;
+	// Extension modules.
+	var Events = require( 'modules/Events' ),
+		Settings = require( 'modules/Settings' ),
+		Tags = require( 'modules/Tags' ),
+		
+		// Variables.
+		doneRegExp = /^\[x\]/i,
+		issueRegExp = /#(\d+)/i;
 	
 	// Define todo object.
 	function Todo( todo ) {
+		var todoObject = this;
+		
 		// Use object properties if one was supplied.
 		if ( typeof( todo ) === 'object' ) {
 			this.tag( todo.tag );
@@ -19,6 +27,17 @@ define( function( require ) {
 			this._char = '';
 			this._done = false;
 		}
+		
+		// Check if tag is visible.
+		this.isVisible( Tags.isVisible( todo.tag ) );
+		
+		// Get tag color.
+		this.color( Tags.getColor( todo.tag ) );
+		
+		// Subscribe to changes in tag visibility.
+		Events.subscribe( 'tags:visible', function( visibleTags ) {
+			todoObject._handleVisibility( visibleTags )
+		} );
 	}
 	
 	// Methods handling tag.
@@ -34,9 +53,21 @@ define( function( require ) {
 	
 	// Methods handling comment.
 	Todo.prototype.comment = function( comment ) {
+		var github = Settings.get().github;
+		
 		// Return comment if no new comment is supplied.
 		if ( comment === undefined ) {
 			return this._comment;
+		}
+		
+		// Check for GitHub issues.
+		if ( github !== undefined ) {
+			comment = comment.replace( 
+				issueRegExp,
+				'<a rel="external" data-href="https://github.com/{{ github.user }}/{{ github.repository }}/issues/$1">$&</a>'
+					.replace( '{{ github.user }}', github.user )
+					.replace( '{{ github.repository }}', github.repository )
+			);
 		}
 		
 		// Set comment if one is supplied.
@@ -76,6 +107,32 @@ define( function( require ) {
 		
 		// Set char if one is supplied.
 		this._char = char;
+	}
+	
+	// Methods handling visibility.
+	Todo.prototype.isVisible = function( visible ) {
+		// Return visibility if it is not supplied.
+		if ( visible === undefined ) {
+			return this._visible;
+		}
+		
+		// Set visibility if it is supplied.
+		this._visible = visible;
+	}
+	
+	// Methods handling color.
+	Todo.prototype.color = function( color ) {
+		// Return color if no color is supplied.
+		if ( color === undefined ) {
+			return this._color;
+		}
+		
+		this._color = color;
+	}
+	
+	// Listeners.
+	Todo.prototype._handleVisibility = function( hiddenTags ) {
+		this.isVisible( hiddenTags.indexOf( this.tag() ) === -1 );
 	}
 	
 	// Return object.
