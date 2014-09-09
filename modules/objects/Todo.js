@@ -8,11 +8,16 @@ define( function( require ) {
 		
 		// Variables.
 		doneRegExp = /^\[x\]/i,
-		issueRegExp = /#(\d+)/i;
+		issueRegExp = /#(\d+)/i,
+		mentionRegExp = /@([\w|-]+)/i,
+		labelRegExp = /--([\w|-]+)/gi;
 	
 	// Define todo object.
 	function Todo( todo ) {
 		var todoObject = this;
+		
+		// Array of labels.
+		this._labels = [];
 		
 		// Use object properties if one was supplied.
 		if ( typeof( todo ) === 'object' ) {
@@ -35,8 +40,8 @@ define( function( require ) {
 		this.color( Tags.getColor( todo.tag ) );
 		
 		// Subscribe to changes in tag visibility.
-		Events.subscribe( 'tags:visible', function( visibleTags ) {
-			todoObject._handleVisibility( visibleTags )
+		Events.subscribe( 'tags:visible', function( hiddenTags ) {
+			todoObject._handleVisibility( hiddenTags )
 		} );
 	}
 	
@@ -53,25 +58,12 @@ define( function( require ) {
 	
 	// Methods handling comment.
 	Todo.prototype.comment = function( comment ) {
-		var github = Settings.get().github;
-		
 		// Return comment if no new comment is supplied.
 		if ( comment === undefined ) {
 			return this._comment;
 		}
-		
-		// Check for GitHub issues.
-		if ( github !== undefined ) {
-			comment = comment.replace( 
-				issueRegExp,
-				'<a rel="external" data-href="https://github.com/{{ github.user }}/{{ github.repository }}/issues/$1">$&</a>'
-					.replace( '{{ github.user }}', github.user )
-					.replace( '{{ github.repository }}', github.repository )
-			);
-		}
-		
 		// Set comment if one is supplied.
-		this._comment = comment.replace( doneRegExp, '' );
+		this._comment = this.processComment( comment );
 		
 		// Check and save done status.
 		this.isDone( doneRegExp.test( comment ) );
@@ -128,6 +120,87 @@ define( function( require ) {
 		}
 		
 		this._color = color;
+	}
+	
+	// Methods handling labels.
+	Todo.prototype.labels = function() {
+		// Return array of labels.
+		return this._labels;
+	}
+	
+	Todo.prototype.addLabel = function( label ) {
+		// Add label to array.
+		this._labels.push( label );
+	}
+	
+	// Processing methods.
+	Todo.prototype.processComment = function( comment ) {
+		// Remove done status.
+		comment = comment.replace( doneRegExp, '' );
+		
+		// Strip potentially harmful HTML.
+		comment = this._stripHTML( comment );
+		
+		// Link mentions and issues.
+		comment = this._processGithub( comment );
+		
+		// Extract labels.
+		comment = this._processLabels( comment );
+		
+		// Return processed comment.
+		return comment;
+	}
+	
+	Todo.prototype._stripHTML = function( comment ) {
+		// Create container element.
+		var container = document.createElement( 'div' );
+		
+		// Parse the comment through HTML output.
+		container.innerHTML = comment;
+		
+		// Return the output in the container as text.
+		return container.textContent || container.innerText;
+	}
+	
+	Todo.prototype._processGithub = function( comment ) {
+		var github = Settings.get().github;
+		
+		// Check if GitHub information is specified in settings.
+		if ( github !== undefined ) {
+			// Link mentions to user profile on GitHub.
+			comment = comment.replace( 
+				mentionRegExp,
+				'<a rel="external" data-href="https://github.com/$1">$&</a>'
+			);
+			
+			// Make sure that both user and repository is specified in settings.
+			if ( github.user !== undefined && github.repository !== undefined ) {
+				// Link to issues on GitHub.
+				comment = comment.replace(
+					issueRegExp,
+					'<a rel="external" data-href="https://github.com/{{ github.user }}/{{ github.repository }}/issues/$1">$&</a>'
+						.replace( '{{ github.user }}', github.user )
+						.replace( '{{ github.repository }}', github.repository )
+				);
+			}
+		}
+		
+		return comment;
+	}
+	
+	Todo.prototype._processLabels = function( comment ) {
+		var matchArray;
+		
+		// Go through each matched label.
+		while ( ( matchArray = labelRegExp.exec( comment ) ) !== null ) {
+			// Add match to array of labels.
+			this.addLabel( matchArray[ 1 ] );
+		}
+		
+		// Remove all labels from comment.
+		comment = comment.replace( labelRegExp, '' );
+		
+		return comment;
 	}
 	
 	// Listeners.

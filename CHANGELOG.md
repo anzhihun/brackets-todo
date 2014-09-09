@@ -1,9 +1,20 @@
 # Brackets Todo Changelog
 All notable changes to this project will be documented in this file.
 
-## 0.6.1 - Unreleased
+## 0.8.0 - Unreleased
+* Attach labels to each comment.
+* Use new split view methods when opening files.
+
+## 0.7.1 - 2014-09-04
+* Strip HTML from comments to avoid pontentially harmful code.
+* Russian translation. Thanks to Dis Shishkov (@disshishkov).
+* Update to french translation. Thanks to rainje (@rainje).
+
+## 0.7.0 - 2014-09-03
 * Allow modifying tag colors.
-* Recognize and link to ssues on GitHub.
+* Allow sorting by done status.
+* Recognize and link to GitHub issues and mentions.
+* Ukrainian translation. Thanks to Maks Lyashuk (@probil).
 * Update to italian translation. Thanks to Denisov21 (@Denisov21).
 
 ## 0.6.0 - 2014-08-17

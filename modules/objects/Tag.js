@@ -1,17 +1,22 @@
 define( function( require ) {
 	'use strict';
 	
-	// Variables.
-	var defaultColors = {
-		default: '#555',
-		fixme: '#c95353',
-		future: '#5a99c3',
-		note: '#696',
-		todo: '#d95',
-	};
+	// Extension modules.
+	var Events = require( 'modules/Events' ),
+		
+		// Variables.
+		defaultColors = {
+			default: '#555',
+			fixme: '#c95353',
+			future: '#5a99c3',
+			note: '#696',
+			todo: '#d95',
+		};
 	
 	// Define tag object.
 	function Tag( tag ) {
+		var tagObject = this;
+		
 		// Use object properties if one was supplied.
 		if ( typeof( tag ) === 'object' ) {
 			this.tag( tag.tag );
@@ -21,6 +26,7 @@ define( function( require ) {
 			this.isVisible( tag.visible );
 		} else {
 			this._tag = '';
+			this._regexp = '';
 			this._name = '';
 			this._count = 0;
 			this._visibility = true;
@@ -37,6 +43,11 @@ define( function( require ) {
 				this._color = defaultColors.default;
 			}
 		}
+		
+		// Subscribe to changes in tag visibility.
+		Events.subscribe( 'tags:visible', function( hiddenTags ) {
+			tagObject._handleVisibility( hiddenTags )
+		} );
 	}
 	
 	// Methods handling tag.
@@ -56,6 +67,9 @@ define( function( require ) {
 			this.color( parts[ 1 ] );
 		}
 		
+		// Set tag RegExp.
+		this._regexp = parts[ 0 ];
+		
 		// Set tag if one is supplied.
 		this._tag = parts[ 0 ].replace( /[^a-zA-Z]/g, '' ).toLowerCase();
 	}
@@ -69,6 +83,16 @@ define( function( require ) {
 		
 		// Set tag if one is supplied.
 		this._name = name.replace( /[^a-zA-Z]/g, '' );
+	}
+	
+	Tag.prototype.regexp = function( regexp ) {
+		// Return name if no new tag is supplied.
+		if ( regexp === undefined ) {
+			return this._regexp;
+		}
+		
+		// Set tag if one is supplied.
+		this._regexp = regexp;
 	}
 	
 	// Methods handling count.
@@ -104,6 +128,11 @@ define( function( require ) {
 		
 		// Set tag if one is supplied.
 		this._visibility = visibility;
+	}
+	
+	// Listeners.
+	Tag.prototype._handleVisibility = function( hiddenTags ) {
+		this.isVisible( hiddenTags.indexOf( this.tag() ) === -1 );
 	}
 	
 	// Return object.

@@ -14,13 +14,13 @@ define( function( require ) {
 			this._name = file.name;
 			this._path = file.path;
 			this._todos = file.todos;
+			this._expanded = file.expanded;
 		} else {
 			this._name = '';
 			this._path = '';
 			this._todos = [];
+			this._expanded = false;
 		}
-		
-		this._expanded = false;
 	}
 	
 	// Methods handling file name.
@@ -76,6 +76,7 @@ define( function( require ) {
 		
 		// Go through each comment and only return those of visible tags.
 		for ( todo in this._todos ) {
+			// Return true if a visible todo is found.
 			if ( this._todos[ todo ].isVisible() ) {
 				return true;
 			}

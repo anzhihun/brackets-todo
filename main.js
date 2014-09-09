@@ -1,5 +1,5 @@
 /*!
- * Brackets Todo 0.6.0
+ * Brackets Todo 0.8.0
  * Display all todo comments in current document or project.
  *
  * @author Mikael Jorhult
@@ -15,8 +15,9 @@ define( function( require, exports, module ) {
 		CommandManager = brackets.getModule( 'command/CommandManager' ),
 		Commands = brackets.getModule( 'command/Commands' ),
 		EditorManager = brackets.getModule( 'editor/EditorManager' ),
+		MainViewManager = brackets.getModule( 'view/MainViewManager' ),
 		DocumentManager = brackets.getModule( 'document/DocumentManager' ),
-		PanelManager = brackets.getModule( 'view/PanelManager' ),
+		WorkspaceManager = brackets.getModule( 'view/WorkspaceManager' ),
 		Resizer = brackets.getModule( 'utils/Resizer' ),
 		AppInit = brackets.getModule( 'utils/AppInit' ),
 		FileSystem = brackets.getModule( 'filesystem/FileSystem' ),
@@ -34,6 +35,7 @@ define( function( require, exports, module ) {
 		Settings = require( 'modules/Settings' ),
 		SettingsManager = require( 'modules/SettingsManager' ),
 		Strings = require( 'modules/Strings' ),
+		Tags = require( 'modules/Tags' ),
 		
 		// Mustache templates.
 		todoPanelTemplate = require( 'text!html/panel.html' ),
@@ -211,27 +213,32 @@ define( function( require, exports, module ) {
 	}
 	
 	function sortTodos( beforeFilter ) {
+		var sortDone = Settings.get().sort.done;
+		
 		// Go through each file for tasks.
 		$.each( todos, function( index, file ) {
 			var todoArray = file.todos();
 			
-			// Sort tasks by done status.
-			file.todos( todoArray.sort( function( a, b ) {
-				// Use line to differentiate between to tasks with same status.
-				if ( a.isDone() === b.isDone() ) {
-					return ( a.line() < b.line() ? -1 : 1 );
-				} else {
-					// One of the tasks are done. Check which one.
-					if ( a.isDone() ) {
-						return 1;
-					} else if ( b.isDone() ) {
-						return -1;
+			// Sort tasks by done status if enabled in settings.
+			if ( sortDone ) {
+				// Replace old todos with sorted array.
+				file.todos( todoArray.sort( function( a, b ) {
+					// Use line to differentiate between to tasks with same status.
+					if ( a.isDone() === b.isDone() ) {
+						return ( a.line() < b.line() ? -1 : 1 );
+					} else {
+						// One of the tasks are done. Check which one.
+						if ( a.isDone() ) {
+							return 1;
+						} else if ( b.isDone() ) {
+							return -1;
+						}
 					}
-				}
-				
-				// Will not ever happen.
-				return 0;
-			} ) );
+					
+					// Will not ever happen.
+					return 0;
+				} ) );
+			}
 		} );
 		
 		return beforeFilter;
@@ -330,7 +337,7 @@ define( function( require, exports, module ) {
 		// Listeners for file changes.
 		FileSystem.on( 'change', function( event, file ) {
 			// Bail if not a file or file is outside current project root.
-			if ( typeof( file ) !== 'object' || file[ 'isFile' ] === undefined || !file.isFile || file.fullPath.indexOf( Paths.projectRoot() ) === -1 ) {
+			if ( file === null || file.isFile !== true || file.fullPath.indexOf( Paths.projectRoot() ) === -1 ) {
 				return false;
 			}
 			
@@ -352,10 +359,6 @@ define( function( require, exports, module ) {
 			if ( newName === todoPath || oldName === todoPath ) {
 				SettingsManager.loadSettings();
 			} else {
-				// Move visibility state to new file.
-				Files.toggleExpanded( newName, Files.isExpanded( oldName ) );
-				Files.toggleExpanded( oldName, false );
-				
 				// If not .todo, parse all files.
 				run();
 			}
@@ -367,8 +370,8 @@ define( function( require, exports, module ) {
 				var currentDocument = DocumentManager.getCurrentDocument(),
 					$scrollTarget;
 				
-				// Bail if no files are open.
-				if ( !currentDocument ) {
+				// Bail if no files are open or settings have not yet been loaded.
+				if ( !currentDocument || Settings.get().search === undefined ) {
 					return;
 				}
 				
@@ -406,9 +409,6 @@ define( function( require, exports, module ) {
 					SettingsManager.loadSettings();
 				}
 				
-				// Remove file from visibility list.
-				SettingsManager.toggleFileExpanded( deletedPath, false );
-				
 				// Parse path that was deleted to remove from list.
 				setTodos( ParseUtils.removeFile( deletedPath, todos ) );
 			} );
@@ -422,7 +422,7 @@ define( function( require, exports, module ) {
 			} );
 		
 		// Create and cache todo panel.
-		PanelManager.createBottomPanel( 'mikaeljorhult.bracketsTodo.panel', $( todoHTML ), 100 );
+		WorkspaceManager.createBottomPanel( 'mikaeljorhult.bracketsTodo.panel', $( todoHTML ), 100 );
 		$todoPanel = $( '#brackets-todo' );
 		
 		// Close panel when close button is clicked.
@@ -455,15 +455,15 @@ define( function( require, exports, module ) {
 				return false;
 			} )
 			.on( 'click', '.file', function() {
-				var $this = $( this );
-				
 				// Change classes and toggle visibility of todos.
-				$this
+				$( this )
 					.toggleClass( 'expanded' )
 					.toggleClass( 'collapsed' );
 				
-				// Toggle file visibility.
-				Files.toggleExpanded( $this.data( 'file' ), $this.hasClass( 'expanded' ) );
+				// Store array of expanded files.
+				Files.saveExpanded( $.makeArray( $todoPanel.find( '.file.expanded' ).map( function() {
+					return $( this ).data( 'file' );
+				} ) ) );
 			} )
 			.on( 'click', '.comment', function() {
 				var $this = $( this );
@@ -475,7 +475,7 @@ define( function( require, exports, module ) {
 						.setCursorPos( $this.data( 'line' ) - 1, $this.data( 'char' ), true );
 					
 					// Set focus on editor.
-					EditorManager.focusEditor();
+					MainViewManager.focusActivePane();
 				} );
 				
 				return false;
@@ -495,8 +495,10 @@ define( function( require, exports, module ) {
 				var $this = $( this )
 					.toggleClass( 'visible' );
 				
-				// Toggle tag visibility.
-				SettingsManager.toggleTagVisible( $this.data( 'name' ), $this.hasClass( 'visible' ) );
+				// Save names of hidden tags.
+				Tags.saveHidden( $.makeArray( $this.parent().children().not( '.visible' ).map( function() {
+					return $( this ).data( 'name' );
+				} ) ) );
 				
 				// Update list of comments.
 				Events.publish( 'todos:updated' );

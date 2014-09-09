@@ -66,6 +66,8 @@ before the text of the task.
 
 `// TODO: [x]This task is done.`
 
+Tasks can be sorted so that done tasks is moved to the bottom of the list by checking that option in the settings dialog.
+
 
 ## Custom Settings
 The extensions settings can be overridden by adding a `.todo` file in your project folder. This is a simple 
@@ -144,6 +146,21 @@ covers some common formats.
 }
 ```
 
+
+### Tag Colors
+
+The default tags each has a default color but they can be overridden using the settings dialog or a `.todo` file. This is either done by either defining the tag as a string, separating tag name and color with a colon character, or by defining the tag as a object, with a name and a color property.
+
+```json
+{
+	"tags": [
+		"TODO:#d95",
+		{ "name": "NOTE", "color": "#696" }
+	]
+}
+```
+
+
 ### Exclude files and folders
 
 Files and folders may be excluded from searches by defining the properties excludeFolders and excludeFiles 
@@ -195,3 +212,15 @@ Please note that excludes will only work with project wide search scope.
 	}
 }
 ```
+
+### GitHub mentions and issues
+
+By specifying a GitHub user and repository in your project Todo will automatically recognize and link mentions and issues on GitHub using @ and # characters.
+
+```json
+{
+	"github": {
+		"user": "mikaeljorhult",
+		"repository": "brackets-todo"
+	}
+}

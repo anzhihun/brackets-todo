@@ -24,8 +24,6 @@ define( function( require ) {
 	
 	// Define preferences.
 	preferences.definePreference( 'enabled', 'boolean', false );
-	preferences.definePreference( 'expandedFiles', 'object', [] );
-	preferences.definePreference( 'hiddenTags', 'object', [] );
 	preferences.definePreference( 'userSettings', 'object', {} );
 	
 	/**
@@ -46,7 +44,7 @@ define( function( require ) {
 			Tags.init( settings.tags, preferences );
 			
 			// Initialize files.
-			Files.init( settings.search.scope, preferences );
+			Files.init( settings.search.scope );
 			
 			// Build regular expression.
 			setupRegExp();
@@ -126,7 +124,7 @@ define( function( require ) {
 	function setupRegExp() {
 		// Setup regular expression.
 		ParseUtils.setExpression( new RegExp(
-			settings.regex.prefix + Tags.getAll( true ).join( '|' ) + settings.regex.suffix,
+			settings.regex.prefix + Tags.getAll( 'regexp' ).join( '|' ) + settings.regex.suffix,
 			'g' + ( settings.case !== false ? '' : 'i' )
 		) );
 	}
@@ -157,10 +155,7 @@ define( function( require ) {
 	
 	// Reload settings when new project is loaded.
 	$( ProjectManager ).on( 'projectOpen.todo', function() {
-		loadSettings( function() {
-			// Reset file visibility.
-			Files.clearExpanded();
-		} );
+		loadSettings();
 	} );
 	
 	// Return global methods.
@@ -172,7 +167,6 @@ define( function( require ) {
 		// APIs about visible tag.
 		isTagVisible: Tags.isVisible,
 		getTags: Tags.getAll,
-		toggleTagVisible: Tags.toggleVisible,
 		
 		// APIs about extension.
 		isExtensionEnabled: isExtensionEnabled,
